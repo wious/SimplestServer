@@ -6,6 +6,7 @@ using UnityEngine.Networking;
 using System.IO;
 using UnityEngine.UI;
 
+
 public class NetworkedServer : MonoBehaviour
 {
     int maxConnections = 1000;
@@ -30,6 +31,8 @@ public class NetworkedServer : MonoBehaviour
     void Update()
     {
 
+        
+        
         int recHostID;
         int recConnectionID;
         int recChannelID;
@@ -68,6 +71,31 @@ public class NetworkedServer : MonoBehaviour
     private void ProcessRecievedMsg(string msg, int id)
     {
         Debug.Log("msg recieved = " + msg + ".  connection id = " + id);
+        
+        string[] csv = msg.Split(',');
+
+        int signifier = int.Parse(csv[0]);
+
+        if(signifier == ClientToSeverSignifiers.CreateAccount)
+        {
+            Debug.Log("create");
+        }
+        else if (signifier == ClientToSeverSignifiers.LoginAccount)
+        {
+            Debug.Log("login");
+        }
     }
+    
+    public static class ClientToSeverSignifiers
+    {
+        public const int CreateAccount = 1;
+        public const int LoginAccount = 2;
+    }
+
+    public static class ServertoClientSignifiers
+    {
+        public const int LoginResponse = 1;
+    }
+
 
 }
