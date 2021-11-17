@@ -6,7 +6,6 @@ using UnityEngine.Networking;
 using System.IO;
 using UnityEngine.UI;
 
-
 public class NetworkedServer : MonoBehaviour
 {
     int maxConnections = 1000;
@@ -14,29 +13,42 @@ public class NetworkedServer : MonoBehaviour
     int unreliableChannelID;
     int hostID;
     int socketPort = 5491;
+    
+    LinkedList<PlayerAccount> playerAccounts;
+
+    string playeraccountfilepath;
+
+    private int playerWaitingForMatch = -1;
 
     // Start is called before the first frame update
     void Start()
     {
+        playeraccountfilepath = Application.dataPath + Path.DirectorySeparatorChar + "PlayerAccountData.txt";
+        
         NetworkTransport.Init();
+        
         ConnectionConfig config = new ConnectionConfig();
+
         reliableChannelID = config.AddChannel(QosType.Reliable);
         unreliableChannelID = config.AddChannel(QosType.Unreliable);
+
         HostTopology topology = new HostTopology(config, maxConnections);
+
         hostID = NetworkTransport.AddHost(topology, socketPort, null);
         
+        playerAccounts = new LinkedList<PlayerAccount>();
     }
 
     // Update is called once per frame
     void Update()
     {
+        //bool hasNothing = false;
 
-        
-        
+
         int recHostID;
         int recConnectionID;
         int recChannelID;
-        byte[] recBuffer = new byte[1024];
+        byte[] recBuffer = new byte[1024];//this is for messages
         int bufferSize = 1024;
         int dataSize;
         byte error = 0;
@@ -71,31 +83,191 @@ public class NetworkedServer : MonoBehaviour
     private void ProcessRecievedMsg(string msg, int id)
     {
         Debug.Log("msg recieved = " + msg + ".  connection id = " + id);
-        
+
+        //split the msg
         string[] csv = msg.Split(',');
 
-        int signifier = int.Parse(csv[0]);
+        int singifier = int.Parse(csv[0]);
 
-        if(signifier == ClientToSeverSignifiers.CreateAccount)
+        if (singifier == ClientToServerSignifiers.CreateAccount)
         {
-            Debug.Log("create");
+            string n = csv[1];
+            string p = csv[2];
+
+            bool isUnique = true;
+            foreach (PlayerAccount pa in playerAccounts)
+            {
+                if (pa.name == n)
+                {
+                    isUnique = false;
+                    break;
+                }
+            }
+            
+            if (isUnique)
+            {
+                playerAccounts.AddLast(new PlayerAccount(n, p));
+                SendMessageToClient(ServerToClientSignifiers.LoginResponse + "," + LoginResponses.Success, id);
+                
+                //Save player account list!
+                SavePlayerAccounts();
+            }
+
+            else
+            {
+                SendMessageToClient(ServerToClientSignifiers.LoginResponse + "," + LoginResponses.FailureNameInUse, id);
+ 
+            }
         }
-        else if (signifier == ClientToSeverSignifiers.LoginAccount)
+        
+        else if (singifier == ClientToServerSignifiers.Login)
         {
-            Debug.Log("login");
+            string n = csv[1];
+            string p = csv[2];
+
+            bool hasBeenFound = false;
+            //bool responseHasBeenSent = false;
+            
+            foreach (PlayerAccount pa in playerAccounts)
+            {
+                if (pa.name == n)
+                {
+                    if (pa.password == p)
+                    {
+                        SendMessageToClient(ServerToClientSignifiers.LoginResponse + "," + LoginResponses.Success, id);
+                        //bool responseHasBeenSent = true;
+
+                    }
+                    else
+                    {
+                        SendMessageToClient(ServerToClientSignifiers.LoginResponse + "," + LoginResponses.FailureIncorrectPassword, id);
+                        //bool responseHasBeenSent = true;
+
+                    }
+
+                    //we have found players account! do something
+                    
+                    hasBeenFound = true;
+                    break;
+                }
+            }
+
+            if (!hasBeenFound)
+            {
+                SendMessageToClient(ServerToClientSignifiers.LoginResponse + "," + LoginResponses.FailureNameInNotFound, id);
+
+            }
+        }
+        
+        else if (singifier == ClientToServerSignifiers.AddToGameSessionQueue)
+        {
+            //if there is no player waiting, save the waiting player in the above variable
+
+            if (playerWaitingForMatch == -1)
+            {
+                //make a single int variable to represent the one and only possible wating player
+                playerWaitingForMatch = id;
+            }
+            else //if  there is a waiting player , join
+            {
+                //START GAME SESSION
+                //create the game session object, pass it to two players
+                //beginning of piping
+                GameSession gs = new GameSession(playerWaitingForMatch, id);
+                
+                //pass siginifier to both clients that they've joined one
+                SendMessageToClient(ServerToClientSignifiers.GameSessionStarted + "", id);
+                SendMessageToClient(ServerToClientSignifiers.GameSessionStarted + "", playerWaitingForMatch);
+                
+                //reset game matching queue
+                playerWaitingForMatch = -1;
+            }
+        }
+        
+        else if (singifier == ClientToServerSignifiers.TicTacToePlay)
+        {
+            //
+            Debug.Log("let's play!");
         }
     }
     
-    public static class ClientToSeverSignifiers
+    private void SavePlayerAccounts()
     {
-        public const int CreateAccount = 1;
-        public const int LoginAccount = 2;
-    }
+        StreamWriter sw = new StreamWriter(playeraccountfilepath);
 
-    public static class ServertoClientSignifiers
+
+        foreach (PlayerAccount pa in playerAccounts)
+        {
+            sw.WriteLineAsync(pa.name + "," + pa.password);
+        }
+        sw.Close();
+    }
+    
+    private void LoadPlayerAccounts()
     {
-        public const int LoginResponse = 1;
+        if (File.Exists(playeraccountfilepath))
+        {
+            StreamReader sr = new StreamReader(playeraccountfilepath);
+            string line;
+            while((line = sr.ReadLine()) != null)
+            {
+                string[] csv = line.Split(',');
+
+                PlayerAccount pa = new PlayerAccount(csv[0], csv[0]);
+                playerAccounts.AddLast(pa);
+            }
+        }
+       
     }
+}
 
+public class GameSession
+{
+    private int playerID1, playerID2;
 
+    public GameSession(int PlayerID1, int PlayerID2)
+    {
+        playerID1 = PlayerID1;
+        playerID2 = PlayerID2;
+    }
+    //Hold two clients
+    //to do work item
+    //... but we are working to do it, with plan of coming back once we have a better understanding of whats going on and what we must do
+}
+//set up account class
+public class PlayerAccount
+{
+    public string name, password;
+
+    public PlayerAccount(string Name, string Password)
+    {
+        name = Name;
+        password = Password;
+    }
+}
+
+public static class ClientToServerSignifiers
+{
+    public const int Login = 1;
+    public const int CreateAccount = 2;
+    public const int AddToGameSessionQueue = 3;
+    public const int TicTacToePlay = 4;
+}
+
+public static class ServerToClientSignifiers
+{
+    public const int LoginResponse = 1;
+
+    public const int GameSessionStarted = 2;
+}
+
+public static class LoginResponses
+{
+    public const int Success = 1;
+
+    public const int FailureNameInUse = 2;
+    
+    public const int FailureNameInNotFound = 3;
+
+    public const int FailureIncorrectPassword = 4;
 }
